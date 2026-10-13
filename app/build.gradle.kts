@@ -11,8 +11,8 @@ android {
         applicationId = "com.vera_watt"
         minSdk = 33
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.2-Beta"
+        versionCode = 3
+        versionName = "0.3-Beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
