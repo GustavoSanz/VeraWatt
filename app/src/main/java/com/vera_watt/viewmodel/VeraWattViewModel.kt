@@ -29,30 +29,36 @@ class VeraWattViewModel(application: Application) : AndroidViewModel(application
     var isServerOffline by mutableStateOf(false)
     var isAppLocked by mutableStateOf(loggedIn && autoBiometric)
 
+    var userId by mutableIntStateOf(prefs.getInt("user_id", 1))
     var userName by mutableStateOf(prefs.getString("user_name", "Utilizador") ?: "Utilizador")
     var userEmail by mutableStateOf(prefs.getString("user_email", "") ?: "")
     var userRole by mutableStateOf(prefs.getString("user_role", "cliente") ?: "cliente")
     var ecoPontos by mutableIntStateOf(prefs.getInt("eco_pontos", 0))
 
-    fun saveUserData(nome: String, email: String, role: String, pontos: Int = 0) {
+    fun saveUserData(id: Int = 1, nome: String, email: String, role: String, pontos: Int = 0) {
+        userId = id
         userName = nome
         userEmail = email
         userRole = role
         ecoPontos = pontos
         prefs.edit()
+            .putInt("user_id", id)
             .putString("user_name", nome)
             .putString("user_email", email)
             .putString("user_role", role)
             .putInt("eco_pontos", pontos)
             .apply()
+        fetchInvoices()
     }
 
     fun clearUserData() {
+        userId = 1
         userName = "Utilizador"
         userEmail = ""
         userRole = "cliente"
         ecoPontos = 0
         prefs.edit()
+            .remove("user_id")
             .remove("user_name")
             .remove("user_email")
             .remove("user_role")
@@ -114,7 +120,7 @@ class VeraWattViewModel(application: Application) : AndroidViewModel(application
                     val serverCode = json.optInt("version_code", com.vera_watt.AppVersion.CODE)
                     val serverName = json.optString("version_name", com.vera_watt.AppVersion.NAME)
                     val msg = json.optString("message", "")
-                    val url = json.optString("download_url", "")
+                    val url = json.optString("store_url", json.optString("download_url", "https://gustavosanz.github.io/Stopp-Store/verawatt.html"))
 
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                         if (serverCode > com.vera_watt.AppVersion.CODE) {
@@ -160,6 +166,7 @@ class VeraWattViewModel(application: Application) : AndroidViewModel(application
     )
 
     init {
+        fetchInvoices()
         viewModelScope.launch {
             while (true) {
                 watts = (watts + Random.nextInt(-200, 201)).coerceIn(150, 3500)
@@ -182,7 +189,59 @@ class VeraWattViewModel(application: Application) : AndroidViewModel(application
 
     fun pay(id: Int) {
         val i = invoices.indexOfFirst { it.id == id }
-        if (i >= 0) invoices[i] = invoices[i].copy(status = InvoiceStatus.PAID)
+        if (i >= 0) {
+            invoices[i] = invoices[i].copy(status = InvoiceStatus.PAID)
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val url = "https://gustavosanz.taila8ef3d.ts.net/2%C2%BA_Ano/VeraWatt/api_faturas.php?action=pagar&id_fatura=$id"
+                    val req = okhttp3.Request.Builder().url(url).build()
+                    okhttp3.OkHttpClient().newCall(req).execute()
+                } catch (e: Exception) {
+                    // Fallback
+                }
+            }
+        }
+    }
+
+    fun fetchInvoices() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val url = "https://gustavosanz.taila8ef3d.ts.net/2%C2%BA_Ano/VeraWatt/api_faturas.php?user_id=$userId"
+                val req = okhttp3.Request.Builder().url(url).build()
+                val resp = okhttp3.OkHttpClient().newCall(req).execute()
+                val body = resp.body?.string()
+                if (resp.isSuccessful && body != null) {
+                    val json = org.json.JSONObject(body)
+                    if (json.optBoolean("sucesso", false)) {
+                        val arr = json.optJSONArray("faturas")
+                        if (arr != null && arr.length() > 0) {
+                            val list = mutableListOf<Invoice>()
+                            for (idx in 0 until arr.length()) {
+                                val item = arr.getJSONObject(idx)
+                                val id = item.optInt("id")
+                                val mes = item.optString("mes")
+                                val energia = item.optDouble("energia", 30.0)
+                                val potencia = item.optDouble("potencia", 8.9)
+                                val taxas = item.optDouble("taxas", 8.0)
+                                val estadoStr = item.optString("estado", "pendente")
+                                val status = when (estadoStr.lowercase()) {
+                                    "pago" -> InvoiceStatus.PAID
+                                    "atrasado" -> InvoiceStatus.OVERDUE
+                                    else -> InvoiceStatus.PENDING
+                                }
+                                list.add(Invoice(id, mes, energia, potencia, taxas, status))
+                            }
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                invoices.clear()
+                                invoices.addAll(list)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Manter estado local se offline
+            }
+        }
     }
 
     fun bars(): List<Bar> {

@@ -51,6 +51,7 @@ fun AuthScreen(vm: VeraWattViewModel, onLoginSucesso: () -> Unit) {
                     AndroidView(
                         factory = { context ->
                             WebView(context).apply {
+                                setBackgroundColor(android.graphics.Color.parseColor("#0f172a"))
                                 settings.javaScriptEnabled = true
                                 settings.domStorageEnabled = true
                                 webViewClient = WebViewClient()
@@ -171,11 +172,12 @@ fun AuthScreen(vm: VeraWattViewModel, onLoginSucesso: () -> Unit) {
                                     val sucesso = json.optBoolean("sucesso", false)
                                     if (sucesso) {
                                         val userObj = json.optJSONObject("utilizador")
+                                        val id = userObj?.optInt("id_utilizador", 1) ?: 1
                                         val nome = userObj?.optString("nome", "Utilizador") ?: "Utilizador"
                                         val tipo = userObj?.optString("tipo_utilizador", "cliente") ?: "cliente"
                                         val pontos = userObj?.optInt("eco_pontos", 0) ?: 0
 
-                                        vm.saveUserData(nome = nome, email = email, role = tipo, pontos = pontos)
+                                        vm.saveUserData(id = id, nome = nome, email = email, role = tipo, pontos = pontos)
                                         vm.saveLoginSession(true)
                                         Toast.makeText(ctx, "Bem-vindo, $nome!", Toast.LENGTH_SHORT).show()
                                         onLoginSucesso()
